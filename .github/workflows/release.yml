@@ -1,0 +1,25 @@
+name: Windows portable build
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.14'
+      - shell: pwsh
+        run: ./scripts/build_windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZhilianApplyDesk-Windows-x64
+          path: dist/ZhilianApplyDesk-Windows-x64.zip
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ZhilianApplyDesk-Windows-x64.zip

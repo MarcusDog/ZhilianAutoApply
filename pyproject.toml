@@ -1,0 +1,16 @@
+[project]
+name = "zhilian-apply-desk"
+version = "1.0.0"
+description = "Local Web workbench for Zhilian job collection and user-controlled applications"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn>=0.30,<1", "sqlalchemy>=2.0,<3",
+  "playwright>=1.50,<2", "httpx>=0.27,<1", "requests>=2.32,<3"
+]
+
+[dependency-groups]
+build = ["pyinstaller==6.22.3"]
+test = ["pytest>=8,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
