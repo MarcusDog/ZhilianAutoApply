@@ -11,6 +11,7 @@ try {
     & $pythonExe -m PyInstaller --noconfirm --onedir --windowed --name ZhilianApplyDesk --add-data 'web;web' --collect-all playwright --collect-submodules sqlalchemy.dialects.sqlite --hidden-import uvicorn.logging --hidden-import uvicorn.loops.asyncio --hidden-import uvicorn.protocols.http.h11_impl --hidden-import uvicorn.lifespan.on desktop_entry.py
     if ($LASTEXITCODE -ne 0) { throw 'PyInstaller build failed.' }
     Copy-Item -LiteralPath README.md,NOTICE.md -Destination 'dist\ZhilianApplyDesk'
+    Copy-Item -LiteralPath docs -Destination 'dist\ZhilianApplyDesk\docs' -Recurse -Force
     & $pythonExe scripts\package_release.py
     if ($LASTEXITCODE -ne 0) { throw 'Release packaging failed.' }
 } finally { Pop-Location }
