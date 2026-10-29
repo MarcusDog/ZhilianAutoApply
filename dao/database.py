@@ -1,7 +1,7 @@
 """数据库连接管理（SQLAlchemy 2.0 + SQLite）"""
 import logging
 from pathlib import Path
-from app_paths import DATA_DIR
+from runtime_paths import DATA_DIR
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
@@ -55,11 +55,11 @@ def _ensure_column(table: str, column: str, ddl_type: str):
 
 def _migrate_legacy_blocked_companies():
     """将旧版 app_config.blocked_companies 迁移到 blocked_companies 表（幂等：仅当新表为空时执行）"""
-    from app_config import get_config
+    from config_store import get_user_config
     from dao.blocked_company_dao import blocked_company_dao
     if blocked_company_dao.count() > 0:
         return  # 新表已有数据，不做重复迁移
-    legacy = get_config().get("blocked_companies", []) or []
+    legacy = get_user_config().get("blocked_companies", []) or []
     legacy = [c for c in legacy if c and str(c).strip()]
     if legacy:
         added, existed = blocked_company_dao.add_many(legacy)

@@ -2,7 +2,7 @@ import json
 import logging
 import httpx
 
-from app_config import get_config
+from config_store import get_user_config
 from ai_logger import log_ai_call, messages_to_text
 
 logger = logging.getLogger(__name__)
@@ -12,7 +12,7 @@ class DeepSeekClient:
     """DeepSeek API 客户端，用于投递前的资格判断"""
 
     def __init__(self, config=None):
-        self.config = config or get_config()
+        self.config = config or get_user_config()
         self.api_key = self.config.get("deepseek_api_key", "")
         self.model = self.config.get("deepseek_model", "deepseek-chat")
         self.base_url = self.config.get("deepseek_base_url", "https://api.deepseek.com")

@@ -1,7 +1,7 @@
 [project]
-name = "zhilian-apply-desk"
-version = "1.0.0"
-description = "Local Web workbench for Zhilian job collection and user-controlled applications"
+name = "zhilian-auto-apply"
+version = "1.1.0"
+description = "智联自动投递简历：岗位采集、筛选与可控投递"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1", "uvicorn>=0.30,<1", "sqlalchemy>=2.0,<3",

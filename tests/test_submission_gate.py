@@ -3,13 +3,13 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, AsyncMock
-from settings import Settings
-from auto_campaign import Campaign, Ledger
+from workbench_settings import ApplicationSettings
+from application_runner import ResumeApplicationService, SubmissionJournal
 
 class SubmissionGateTests(unittest.IsolatedAsyncioTestCase):
     async def test_fresh_blacklist_hit_never_clicks_or_reserves(self):
         with tempfile.TemporaryDirectory() as directory:
-            settings=Settings(processing_mode='apply',filter_keywords='外包')
+            settings=ApplicationSettings(processing_mode='apply',filter_keywords='外包')
             config=Mock();config.get.side_effect=lambda key,default=None:settings.model_dump() if key=='desktop_settings' else default
             def element(text,count=1):
                 obj=Mock();obj.first=obj;obj.inner_text=AsyncMock(return_value=text)
@@ -26,10 +26,10 @@ class SubmissionGateTests(unittest.IsolatedAsyncioTestCase):
                 '.summary-planes__salary, .job-detail-summary__salary':element('18-25K'),
                 '.describtion-card, .job-description__content':element('外包项目开发'),
             }[selector]
-            worker=SimpleNamespace(config=config,wait_control=AsyncMock(),db=Mock(),save_rows=Mock(),state_file='state.json',
+            worker=SimpleNamespace(config=config,wait_for_task_permission=AsyncMock(),db=Mock(),persist_positions=Mock(),state_file='state.json',
                 context=SimpleNamespace(new_page=AsyncMock(return_value=page),storage_state=AsyncMock()))
             worker.db.is_job_applied.return_value=False
-            campaign=Campaign.__new__(Campaign);campaign.worker=worker;campaign.ledger=Ledger(Path(directory)/'l.db');campaign.report=Mock()
+            campaign=ResumeApplicationService.__new__(ResumeApplicationService);campaign.worker=worker;campaign.ledger=SubmissionJournal(Path(directory)/'l.db');campaign.report=Mock()
             job=dict(title='Python开发',company='示例公司',description='普通开发',url=page.url)
             await campaign.submit(job,campaign.ledger.new_batch())
             actions.get_by_role.assert_not_called()
@@ -38,9 +38,9 @@ class SubmissionGateTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_preview_mode_cannot_create_submission_page(self):
         with tempfile.TemporaryDirectory() as directory:
-            config=Mock();config.get.side_effect=lambda key,default=None:Settings().model_dump() if key=='desktop_settings' else default
-            worker=SimpleNamespace(config=config,wait_control=AsyncMock(),db=Mock(),context=Mock())
+            config=Mock();config.get.side_effect=lambda key,default=None:ApplicationSettings().model_dump() if key=='desktop_settings' else default
+            worker=SimpleNamespace(config=config,wait_for_task_permission=AsyncMock(),db=Mock(),context=Mock())
             worker.db.is_job_applied.return_value=False
-            campaign=Campaign.__new__(Campaign);campaign.worker=worker;campaign.ledger=Ledger(Path(directory)/'l.db')
+            campaign=ResumeApplicationService.__new__(ResumeApplicationService);campaign.worker=worker;campaign.ledger=SubmissionJournal(Path(directory)/'l.db')
             await campaign.submit(dict(url='https://www.zhaopin.com/jobdetail/PREVIEW.htm'),1)
             worker.context.new_page.assert_not_called()

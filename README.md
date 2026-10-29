@@ -1,10 +1,9 @@
-# Zhilian Apply Desk · 智联投递工作台
+# 智联自动投递简历 · ZhilianAutoApply
 
-本地运行的智联招聘采集与投递工具：浏览器负责登录和操作，Web 工作台负责搜索、过滤、节奏、数量上限、暂停恢复、定时启动与记录导出。
+由 MarcusDog 维护的本地智联简历投递项目：浏览器负责登录和操作，Web 工作台负责搜索、过滤、节奏、数量上限、暂停恢复、定时启动与记录导出。
 
 **首次启动默认仅采集预览，不提交简历。** 在工作台明确选择“自动投递”并点击启动后，才会提交当前智联账号的简历。账号、Cookies、浏览器资料和投递记录保存在使用者自己的电脑，不随源码或发布包共享。
 
-基于 [mengfei0001/AutoApplyZhiLian](https://github.com/mengfei0001/AutoApplyZhiLian) 改造，来源与许可见 [NOTICE.md](NOTICE.md)。
 
 ![投递控制工作台](docs/workbench.png)
 
@@ -14,11 +13,11 @@
 
 ### 方式 A：Windows 便携版，不需要 Python
 
-1. 打开本仓库的 [Releases](https://github.com/MarcusDog/ZhilianApplyDesk/releases)。
-2. 下载 `ZhilianApplyDesk-Windows-x64.zip`。
+1. 打开本仓库的 [Releases](https://github.com/MarcusDog/ZhilianAutoApply/releases)。
+2. 下载 `ZhilianAutoApply-Windows-x64.zip`。
 3. **先完整解压**到一个可写目录，例如“文档”下。不要在压缩包中直接双击，也不要只取出 EXE。
 4. 保留 EXE 旁的 `_internal` 文件夹，它包含网页、Python 运行时和 Playwright 驱动。
-5. 双击 `ZhilianApplyDesk.exe`，默认浏览器会打开 <http://127.0.0.1:8765>。
+5. 双击 `ZhilianAutoApply.exe`，默认浏览器会打开 <http://127.0.0.1:8765>。
 6. 安装 Google Chrome 或 Microsoft Edge，或在源码方式中安装 Playwright Chromium；程序会按配置自动检测浏览器。
 
 需要桌面入口时，右键这个 EXE →“显示更多选项”→“发送到”→“桌面快捷方式”。以后每天双击快捷方式即可。
@@ -30,10 +29,10 @@
 前置条件：Git、[uv](https://docs.astral.sh/uv/)、Chrome/Edge，或 Playwright Chromium。
 
 ```powershell
-git clone https://github.com/MarcusDog/ZhilianApplyDesk.git
-cd ZhilianApplyDesk
+git clone https://github.com/MarcusDog/ZhilianAutoApply.git
+cd ZhilianAutoApply
 uv sync --locked
-uv run python desktop_entry.py
+uv run python launcher.py
 ```
 
 也可以在 Windows 双击仓库中的 `启动工作台.cmd`。首次会同步依赖，随后打开本地页面。命令行出错时窗口会保留错误。
@@ -53,11 +52,11 @@ uv run playwright install --with-deps chromium
 ### 方式 C：普通 Python / venv
 
 ```powershell
-git clone https://github.com/MarcusDog/ZhilianApplyDesk.git
-cd ZhilianApplyDesk
+git clone https://github.com/MarcusDog/ZhilianAutoApply.git
+cd ZhilianAutoApply
 py -3 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
-.venv\Scripts\python desktop_entry.py
+.venv\Scripts\python launcher.py
 ```
 
 Python 需要 3.11 或更新版本。Git 刚克隆下来没有登录状态，这是正常的；每个使用者需要在自己的程序浏览器中登录。
@@ -162,8 +161,8 @@ flowchart LR
 支持自定义目录：
 
 ```powershell
-$env:AUTOAPPLY_DATA_DIR = "$env:LOCALAPPDATA\ZhilianApplyDesk"
-uv run python desktop_entry.py
+$env:AUTOAPPLY_DATA_DIR = "$env:LOCALAPPDATA\ZhilianAutoApply"
+uv run python launcher.py
 ```
 
 升级时先暂停并关闭任务，备份 `data/`，替换程序文件和 `_internal/`，保留 `data/` 后重新启动。不要把自己的 `data/` 放进 Git 或分享给别人。
@@ -179,9 +178,9 @@ uv run python desktop_entry.py
 默认仅监听本机 `127.0.0.1:8765`；如果被其他程序占用，会依次尝试后面的端口，不会连接到其他应用。以启动时实际打开的页面为准，也可以指定起始端口：
 
 ```powershell
-uv run python desktop_entry.py --port 8877
+uv run python launcher.py --port 8877
 # 便携版也支持：
-.\ZhilianApplyDesk.exe --port 8877
+.\ZhilianAutoApply.exe --port 8877
 ```
 
 ### 没有浏览器 / 登录后仍然等待
@@ -212,18 +211,17 @@ uv run python -m unittest discover -s tests -t . -v
 
 ```text
 dist/
-  ZhilianApplyDesk/
-    ZhilianApplyDesk.exe
+  ZhilianAutoApply/
+    ZhilianAutoApply.exe
     _internal/
     README.md
-    NOTICE.md
-  ZhilianApplyDesk-Windows-x64.zip
+  ZhilianAutoApply-Windows-x64.zip
 ```
 
 独立浏览器自检（不访问智联、不投递）：
 
 ```powershell
-.\dist\ZhilianApplyDesk\ZhilianApplyDesk.exe --self-test "$PWD\browser-check.json"
+.\dist\ZhilianAutoApply\ZhilianAutoApply.exe --self-test "$PWD\browser-check.json"
 ```
 
 测试覆盖配置校验、黑白名单、职位/详情/薪资/收藏过滤、定时触发、暂停恢复、持久化去重与上限、API 保存和跨站写入拒绝。浏览器页面变化仍需要针对当前页面实测。
@@ -233,13 +231,13 @@ dist/
 ## 9. 结构
 
 ```text
-desktop_entry.py   桌面/命令行入口与后台服务启动
-main.py            Web API、工作进程管理、每日调度
-settings.py        可配置选项及校验
-job_filters.py     与账号无关的筛选规则
-preview_jobs.py    登录、搜索和采集
-auto_campaign.py   执行循环、提交证据、去重与数量上限
-dao/               SQLite 数据访问（改造自上游）
+launcher.py          桌面/命令行入口与后台服务启动
+web_server.py        Web API、工作进程管理、每日调度
+workbench_settings.py 可配置选项及校验
+position_filters.py     与账号无关的筛选规则
+job_collector.py    登录、搜索和采集
+application_runner.py   执行循环、提交证据、去重与数量上限
+dao/               SQLite 数据访问与记录管理
 web/               无 CDN 依赖的本地 Web 界面
 tests/             不使用个人账号数据的自动化测试
 scripts/           Windows 打包与发布包生成

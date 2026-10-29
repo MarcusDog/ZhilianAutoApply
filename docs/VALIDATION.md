@@ -2,7 +2,7 @@
 
 验证日期：2026-10-30。环境：Windows x64、Python 3.14、已安装的 Google Chrome。
 
-- 14 项本地自动化测试通过：配置合法性、关键词模式、岗位和详情过滤、薪资解析、收藏状态、持久化数量上限、去重、定时判断、暂停恢复、API 设置保存、跨站写入拒绝、日志编码容错和提交前拦截。
+- 16 项本地自动化测试通过：配置合法性、关键词模式、岗位和详情过滤、薪资解析、收藏状态、持久化数量上限、去重、定时判断、暂停恢复、API 设置保存、跨站写入拒绝、日志编码容错、提交前拦截、项目标识和现有数据目录兼容。
 - 使用空白临时数据目录启动真正的便携 EXE，验证首次默认预览模式、不依赖原账号数据库。
 - 启动器退出后，网页、JavaScript、样式和 Playwright 驱动仍存在并可运行。
 - 再次启动同一 EXE 复用已有服务。
@@ -19,5 +19,5 @@
 ```powershell
 uv run python -m unittest discover -s tests -t . -v
 uv run python scripts/check_web.py
-uv run python scripts/smoke_windows.py dist/ZhilianApplyDesk/ZhilianApplyDesk.exe --browser-worker --output build/smoke-result.json
+uv run python scripts/smoke_windows.py dist/ZhilianAutoApply/ZhilianAutoApply.exe --browser-worker --output build/smoke-result.json
 ```

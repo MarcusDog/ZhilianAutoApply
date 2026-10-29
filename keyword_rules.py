@@ -6,7 +6,7 @@ import re
 _SEP_RE = re.compile(r"[\n,，;；]")
 
 
-def split_keywords(raw):
+def parse_keyword_list(raw):
     """把配置的过滤关键词字符串拆成列表（去掉空项）"""
     if not raw:
         return []
@@ -15,7 +15,7 @@ def split_keywords(raw):
     return [k.strip() for k in _SEP_RE.split(str(raw)) if k and k.strip()]
 
 
-def match_filter_keyword(keywords, job_info):
+def find_keyword_match(keywords, job_info):
     """判断职位标题/描述/要求是否命中任一过滤关键词
 
     Args:
@@ -44,9 +44,9 @@ def match_filter_keyword(keywords, job_info):
     return None
 
 
-def mark_blacklist_match(job_info, keywords):
+def record_blocked_keyword(job_info, keywords):
     """Record an exclusion without changing historical submission results."""
-    hit = match_filter_keyword(keywords, job_info)
+    hit = find_keyword_match(keywords, job_info)
     if hit:
         reason = f'命中黑名单关键词：{hit}'
         job_info.update(blacklist_keyword=hit, review_status='excluded', score=0,

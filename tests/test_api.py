@@ -1,13 +1,13 @@
 import unittest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
-from main import app, manager, config
-from settings import Settings, save_settings
+from web_server import app, manager, config
+from workbench_settings import ApplicationSettings, store_workbench_settings
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
         from dao.database import init_database
-        init_database();save_settings(config,Settings())
+        init_database();store_workbench_settings(config,ApplicationSettings())
 
     def test_fresh_web_settings_and_persistence(self):
         with patch.object(manager,'stop'),TestClient(app) as c:
@@ -37,8 +37,8 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(c.post('/api/control/start',json={},headers={'Origin':'https://evil.example'}).status_code,403)
 
     def test_reader_survives_console_encoding_errors(self):
-        from main import ApplyManager
+        from web_server import TaskController
         from types import SimpleNamespace
-        m=ApplyManager();p=SimpleNamespace(stdout=__import__('io').StringIO('成功✅\n继续\n'))
+        m=TaskController();p=SimpleNamespace(stdout=__import__('io').StringIO('成功✅\n继续\n'))
         with patch('builtins.print',side_effect=UnicodeError('console encoding')):m._read_output(p)
         self.assertEqual(m.output,['成功✅','继续'])

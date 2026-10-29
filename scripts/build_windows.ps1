@@ -8,10 +8,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Build dependencies unavailable.' }
         $pythonExe=Join-Path $rootDir '.venv\Scripts\python.exe'
     } else { $pythonExe=$env:BUILD_PYTHON }
-    & $pythonExe -m PyInstaller --noconfirm --onedir --windowed --name ZhilianApplyDesk --add-data 'web;web' --collect-all playwright --collect-submodules sqlalchemy.dialects.sqlite --hidden-import uvicorn.logging --hidden-import uvicorn.loops.asyncio --hidden-import uvicorn.protocols.http.h11_impl --hidden-import uvicorn.lifespan.on desktop_entry.py
+    & $pythonExe -m PyInstaller --noconfirm --onedir --windowed --name ZhilianAutoApply --version-file 'build_assets\windows_version_info.txt' --add-data 'web;web' --collect-all playwright --collect-submodules sqlalchemy.dialects.sqlite --hidden-import uvicorn.logging --hidden-import uvicorn.loops.asyncio --hidden-import uvicorn.protocols.http.h11_impl --hidden-import uvicorn.lifespan.on launcher.py
     if ($LASTEXITCODE -ne 0) { throw 'PyInstaller build failed.' }
-    Copy-Item -LiteralPath README.md,NOTICE.md -Destination 'dist\ZhilianApplyDesk'
-    Copy-Item -LiteralPath docs -Destination 'dist\ZhilianApplyDesk\docs' -Recurse -Force
+    Copy-Item -LiteralPath README.md -Destination 'dist\ZhilianAutoApply'
+    Copy-Item -LiteralPath docs -Destination 'dist\ZhilianAutoApply\docs' -Recurse -Force
     & $pythonExe scripts\package_release.py
     if ($LASTEXITCODE -ne 0) { throw 'Release packaging failed.' }
 } finally { Pop-Location }

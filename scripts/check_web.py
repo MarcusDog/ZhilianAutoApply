@@ -48,7 +48,7 @@ def main():
         env=dict(os.environ,AUTOAPPLY_DATA_DIR=directory,PYTHONIOENCODING='utf-8')
         base=f'http://127.0.0.1:{port}'
         with (Path(directory)/'ui-server.log').open('w',encoding='utf-8') as log:
-            p=subprocess.Popen([sys.executable,str(root/'desktop_entry.py'),'--server','--port',str(port)],cwd=root,
+            p=subprocess.Popen([sys.executable,str(root/'launcher.py'),'--server','--port',str(port)],cwd=root,
                     env=env,stdout=log,stderr=log,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
             try:
                 for _ in range(90):
@@ -59,6 +59,11 @@ def main():
                 else:raise RuntimeError('Local QA server did not start')
                 asyncio.run(check(base,root))
             finally:
-                p.terminate();p.wait(timeout=15)
+                if os.name=='nt':
+                    subprocess.run(['taskkill','/PID',str(p.pid),'/T','/F'],capture_output=True,
+                                   creationflags=subprocess.CREATE_NO_WINDOW)
+                else:
+                    p.terminate()
+                p.wait(timeout=15)
 
 if __name__=='__main__':main()

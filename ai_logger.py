@@ -2,7 +2,7 @@
 """AI 请求/响应日志：将每次 AI 调用的请求内容、使用的模型与返回结果单独记录到日志文件"""
 import logging
 import os
-from app_paths import DATA_DIR
+from runtime_paths import DATA_DIR
 
 # 独立日志文件（与运行日志分离，便于排查 AI 判断结果）
 AI_LOG_FILE = str(DATA_DIR / "ai_requests.log")

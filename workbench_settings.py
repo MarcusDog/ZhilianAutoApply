@@ -9,7 +9,7 @@ CITY_CODES = {'北京':'530','上海':'538','深圳':'765','广州':'763','杭�
               '苏州':'639','成都':'801','西安':'854','武汉':'736','长沙':'749','重庆':'551',
               '天津':'531','郑州':'719','合肥':'664','厦门':'682','青岛':'703','济南':'702'}
 
-class Settings(BaseModel):
+class ApplicationSettings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     processing_mode: Literal['preview','apply'] = 'preview'
     search_terms: list[str] = Field(default_factory=lambda:['Python','AI应用'])
@@ -76,18 +76,18 @@ class Settings(BaseModel):
             raise ValueError('请填写搜索关键词并选择城市，或提供搜索链接')
         return self
 
-def current_settings(config):
+def load_workbench_settings(config):
     raw = config.get('desktop_settings', None)
     if raw is not None:
-        return Settings.model_validate(raw)
+        return ApplicationSettings.model_validate(raw)
     # Existing local installations may retain their explicitly authorized choices.
-    return Settings(processing_mode='apply' if config.get('campaign_authorized',False) else 'preview',
+    return ApplicationSettings(processing_mode='apply' if config.get('campaign_authorized',False) else 'preview',
                     search_terms=config.get('preview_search_terms') or ['Python','AI应用'],
                     filter_keywords=config.get('filter_keywords',''),
                     apply_interval_seconds=config.get('campaign_apply_interval_seconds',10),
                     batch_interval_seconds=config.get('campaign_batch_interval_seconds',60))
 
-def save_settings(config, settings):
+def store_workbench_settings(config, settings):
     config.load_from_db()
     config.update({'desktop_settings':settings.model_dump(), 'filter_keywords':settings.filter_keywords,
                    'campaign_no_filter':True, 'campaign_batch_size':settings.batch_size,
@@ -95,7 +95,7 @@ def save_settings(config, settings):
                    'campaign_batch_interval_seconds':settings.batch_interval_seconds,
                    'preview_search_terms':settings.search_terms})
 
-def schedule_due(settings,last_date,now=None):
+def is_start_schedule_due(settings,last_date,now=None):
     now=now or datetime.now(CN)
     return (settings.schedule_enabled and last_date!=now.date().isoformat()
             and now.strftime('%H:%M')>=settings.schedule_time)

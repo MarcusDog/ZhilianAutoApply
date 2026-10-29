@@ -2,9 +2,9 @@
 import re
 import hashlib
 import json
-from keyword_filter import split_keywords, match_filter_keyword
+from keyword_rules import parse_keyword_list, find_keyword_match
 
-def salary_range(text):
+def parse_salary_range(text):
     text=(text or '').replace(',','').lower()
     if any(word in text for word in ('面议','保密')): return None
     match=re.search(r'(\d+(?:\.\d+)?)\s*([k千万]?)\s*[-~–至]\s*(\d+(?:\.\d+)?)\s*([k千万]?)',text)
@@ -20,10 +20,10 @@ def salary_range(text):
     elif re.search(r'/天|/日|日薪|/时|时薪',text):return None
     return low,high
 
-def check_job(job,settings,final=False):
+def evaluate_position(job,settings,final=False):
     """Return (eligible, reason); final checks require observable detail/favorite data."""
-    words=split_keywords(settings.filter_keywords)
-    hit=match_filter_keyword(words,job)
+    words=parse_keyword_list(settings.filter_keywords)
+    hit=find_keyword_match(words,job)
     if settings.keyword_mode=='blacklist' and hit:return False,f'黑名单：{hit}'
     if settings.keyword_mode=='whitelist' and words and not hit:
         if final:return False,'未命中白名单'
@@ -41,19 +41,19 @@ def check_job(job,settings,final=False):
             if favorite is None:return False,'收藏状态无法确认，暂不提交'
             if settings.favorite_policy=='only' and not favorite:return False,'仅处理已收藏职位'
             if settings.favorite_policy=='exclude' and favorite:return False,'排除已收藏职位'
-    salary=salary_range(job.get('salary',''))
+    salary=parse_salary_range(job.get('salary',''))
     if salary is None:
         if not settings.allow_unknown_salary:return False,'薪资未知或面议'
     elif (settings.salary_min and salary[1]<settings.salary_min) or (settings.salary_max and salary[0]>settings.salary_max):
         return False,'薪资区间不相交'
     return True,'通过当前过滤规则'
 
-def filter_signature(settings):
+def filter_fingerprint(settings):
     values=settings.model_dump(include={'keyword_mode','filter_keywords','title_keywords','detail_keywords',
         'salary_min','salary_max','allow_unknown_salary','favorite_policy','detail_required'})
     return hashlib.sha256(json.dumps(values,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
-def mark_filter(job,reason,signature=None):
+def record_filter_rejection(job,reason,signature=None):
     if signature:job['filter_signature']=signature
     job.update(review_status='excluded',score=0,reasons=[reason],uncertainties=[])
     if not str(job.get('application_result','')).startswith(('投递成功','投递结果未确认','平台今日上限')):

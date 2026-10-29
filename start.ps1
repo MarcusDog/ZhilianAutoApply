@@ -5,7 +5,7 @@ try {
     if (Get-Command uv -ErrorAction SilentlyContinue) {
         & uv sync --locked
         if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
-        & uv run --locked python desktop_entry.py --port $Port
+        & uv run --locked python launcher.py --port $Port
     } else {
         if (-not (Test-Path '.venv\Scripts\python.exe')) {
             & py -3 -m venv .venv
@@ -13,6 +13,6 @@ try {
             & .\.venv\Scripts\python.exe -m pip install -r requirements.txt
             if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
         }
-        & .\.venv\Scripts\python.exe desktop_entry.py --port $Port
+        & .\.venv\Scripts\python.exe launcher.py --port $Port
     }
 } finally { Pop-Location }

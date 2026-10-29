@@ -11,8 +11,8 @@ import logging
 import re
 from pathlib import Path
 
-# 强制 stdout/stderr 使用 UTF-8 并开启行缓冲，避免 Windows GBK 编码导致主进程（main.py）解码崩溃，
-# 同时确保每行日志能实时输出（管道被 main.py 转发到控制台与页面）
+# 强制 stdout/stderr 使用 UTF-8 并开启行缓冲，避免 Windows GBK 编码导致主进程（web_server.py）解码崩溃，
+# 同时确保每行日志能实时输出（管道被 web_server.py 转发到控制台与页面）
 if sys.stdout:
     try:
         sys.stdout.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
@@ -24,7 +24,7 @@ if sys.stderr:
     except Exception:
         pass
 
-from app_config import get_config
+from config_store import get_user_config
 from ai_client import get_ai_client
 from dao import apply_record_dao
 from dao.blocked_company_dao import blocked_company_dao
@@ -34,7 +34,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-class ZhaopinAutomation:
+class ZhilianBrowserSession:
     def __init__(self, headless=False):
         self.headless = headless
         self.context = None
@@ -46,7 +46,7 @@ class ZhaopinAutomation:
         self.split_processed = 0
 
         # 应用配置和 AI 客户端（DeepSeek）
-        self.config = get_config()
+        self.config = get_user_config()
         self.ai = get_ai_client()
 
         # 使用 DAO 层访问数据库
@@ -212,7 +212,7 @@ class ZhaopinAutomation:
         print("❌ 未找到职位列表")
         return []
 
-    async def extract_job_info(self, job_element):
+    async def parse_position_summary(self, job_element):
         """提取新版分栏页面左侧 .job-card 的基础信息"""
         info = {
             "title": "未知",
@@ -303,7 +303,7 @@ class ZhaopinAutomation:
 
         return info
 
-    async def fetch_job_detail_split(self, job_info, job_element):
+    async def open_position_details(self, job_info, job_element):
         """新版分栏页面：点击左侧卡片，从右侧详情面板提取详细信息
 
         新版页面不再跳转 /jobdetail/xxx.htm，而是右侧 .job-detail-panel 展开详情。
@@ -431,7 +431,7 @@ class ZhaopinAutomation:
         print(f"处理第 {index} 个职位（新版分栏模式）")
 
         # 提取卡片基础信息
-        job_info = await self.extract_job_info(job_element)
+        job_info = await self.parse_position_summary(job_element)
         print(f"职位: {job_info['title']}")
         print(f"公司: {job_info['company']}")
         if job_info.get('salary'):
@@ -448,7 +448,7 @@ class ZhaopinAutomation:
 
         # 点击卡片展开右侧详情并提取
         if fetch_detail:
-            job_info = await self.fetch_job_detail_split(job_info, job_element)
+            job_info = await self.open_position_details(job_info, job_element)
             self.db.add_record(job_info, "detail_fetched")
 
             # ========== 「继续沟通」= 已投递检查 ==========
@@ -701,9 +701,9 @@ class ZhaopinAutomation:
             - status: 'qualified' / 'not_qualified' / 'keyword_filtered' / None(未启用或出错)
         """
         # 关键词过滤：标题/内容命中配置的关键词则直接跳过，不调用 AI 模型
-        from keyword_filter import split_keywords, match_filter_keyword
-        keywords = split_keywords(self.config.get("filter_keywords", ""))
-        hit = match_filter_keyword(keywords, job_info)
+        from keyword_rules import parse_keyword_list, find_keyword_match
+        keywords = parse_keyword_list(self.config.get("filter_keywords", ""))
+        hit = find_keyword_match(keywords, job_info)
         if hit:
             print(f"🚫 命中过滤关键词「{hit}」，直接跳过（不调用 AI）")
             return False, f"命中过滤关键词: {hit}", "keyword_filtered"
@@ -1140,7 +1140,7 @@ def main():
                         help='无头模式（不显示浏览器窗口）')
     args = parser.parse_args()
 
-    automation = ZhaopinAutomation(headless=args.headless)
+    automation = ZhilianBrowserSession(headless=args.headless)
 
     # 完整投递模式
     asyncio.run(automation.run(fetch_detail=True))

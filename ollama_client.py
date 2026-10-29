@@ -9,7 +9,7 @@ import logging
 
 import httpx
 
-from app_config import get_config
+from config_store import get_user_config
 from ai_logger import log_ai_call, messages_to_text
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ class OllamaClient:
     """Ollama 本地模型客户端"""
 
     def __init__(self, config=None):
-        self.config = config or get_config()
+        self.config = config or get_user_config()
         self.base_url = self.config.get("ollama_base_url", "http://localhost:11434").rstrip("/")
         self.model = self.config.get("ollama_model", "qwen2.5:7b")
         self.enabled = self.config.get("ollama_enabled", False)

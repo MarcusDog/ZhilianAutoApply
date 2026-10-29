@@ -9,41 +9,41 @@ from pathlib import Path
 from urllib.parse import urlencode, urlparse, urljoin
 
 from playwright.async_api import async_playwright
-from candidate_rules import CITY_CODES, SEARCH_TERMS, assess
-from zhilian import ZhaopinAutomation
-from keyword_filter import split_keywords, match_filter_keyword, mark_blacklist_match
-from app_paths import DATA_DIR
-from settings import current_settings, CITY_CODES
-from job_filters import check_job, mark_filter, filter_signature
+from search_catalog import CITY_CODES, SEARCH_TERMS, rank_collected_position
+from browser_engine import ZhilianBrowserSession
+from keyword_rules import parse_keyword_list, find_keyword_match, record_blocked_keyword
+from runtime_paths import DATA_DIR
+from workbench_settings import load_workbench_settings, CITY_CODES
+from position_filters import evaluate_position, record_filter_rejection, filter_fingerprint
 
 ROOT = DATA_DIR
 STATE = ROOT / 'preview_status.json'
 ROWS = ROOT / 'candidate_jobs.json'
 CSV = ROOT / '候选岗位清单.csv'
 
-def collection_decision(job, direct=False, keywords=None):
-    hit = match_filter_keyword(keywords, job)
+def classify_collected_position(job, direct=False, keywords=None):
+    hit = find_keyword_match(keywords, job)
     if hit:
         return dict(review_status='excluded', score=0, reasons=[f'命中黑名单关键词：{hit}'],
                     uncertainties=[], blacklist_keyword=hit)
     if direct:
         return dict(review_status='direct_pending', score=0, reasons=['按用户广投授权，采集后直接投递'], uncertainties=[])
-    return assess(job)
+    return rank_collected_position(job)
 
 
-def write_json(path, value):
+def write_state_file(path, value):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
     temporary.replace(path)
 
 
-class Preview(ZhaopinAutomation):
+class PositionCollector(ZhilianBrowserSession):
     def __init__(self):
         super().__init__(headless=False)
         self.rows = json.loads(ROWS.read_text(encoding='utf-8')) if ROWS.exists() else []
         for row in self.rows:
-            row.update(collection_decision(row, self.config.get('campaign_no_filter', False),
-                                           split_keywords(self.config.get('filter_keywords', ''))))
+            row.update(classify_collected_position(row, self.config.get('campaign_no_filter', False),
+                                           parse_keyword_list(self.config.get('filter_keywords', ''))))
         self.seen = {f"{row.get('company')}|{row.get('title')}|{row.get('location')}" for row in self.rows}
         self.initial_count = len(self.rows)
         self.nickname = ''
@@ -60,9 +60,9 @@ class Preview(ZhaopinAutomation):
                               campaign_mode=automatic)
         if automatic and (ROOT / 'campaign_status.json').exists():
             status['campaign'] = json.loads((ROOT / 'campaign_status.json').read_text(encoding='utf-8'))
-        write_json(STATE, status)
+        write_state_file(STATE, status)
 
-    async def wait_control(self,delay=0):
+    async def wait_for_task_permission(self,delay=0):
         end=time.monotonic()+delay
         reported=False
         while True:
@@ -77,7 +77,7 @@ class Preview(ZhaopinAutomation):
 
     async def init_browser(self):
         self.playwright=await async_playwright().start()
-        channel=current_settings(self.config).browser_channel
+        channel=load_workbench_settings(self.config).browser_channel
         choices=['chrome','msedge','chromium'] if channel=='auto' else [channel]
         errors=[]
         for choice in choices:
@@ -93,7 +93,7 @@ class Preview(ZhaopinAutomation):
         self.browser=self.context.browser
         self.page=self.context.pages[0] if self.context.pages else await self.context.new_page()
 
-    async def read_nickname(self):
+    async def detect_account_name(self):
         selectors = ('.home-header__c-login .c-login__top__name',
                      '.page-header__user__logged-in > span')
         for page in self.context.pages:
@@ -117,8 +117,8 @@ class Preview(ZhaopinAutomation):
         await self.page.goto('https://www.zhaopin.com/',wait_until='domcontentloaded',timeout=60000)
         reported=False
         while self.browser.is_connected():
-            await self.wait_control()
-            if await self.read_nickname():
+            await self.wait_for_task_permission()
+            if await self.detect_account_name():
                 self.report('logged_in','登录已确认，按网页配置开始处理。')
                 return True
             if not reported:
@@ -126,7 +126,7 @@ class Preview(ZhaopinAutomation):
             await asyncio.sleep(2)
         return False
 
-    async def legacy_info(self, card):
+    async def parse_job_card(self, card):
         async def text(selector):
             element = await card.query_selector(selector)
             return ((await element.inner_text()) or '').strip() if element else ''
@@ -143,7 +143,7 @@ class Preview(ZhaopinAutomation):
                     experience=tags[1] if len(tags) > 1 else '', education=tags[2] if len(tags) > 2 else '',
                     url=href, description='', requirements='')
 
-    async def legacy_detail(self, info):
+    async def load_job_detail(self, info):
         if not info.get('url'):
             return info
         detail = await self.context.new_page()
@@ -164,17 +164,17 @@ class Preview(ZhaopinAutomation):
             await detail.close()
         return info
 
-    def save_rows(self):
-        settings=current_settings(self.config)
-        signature=filter_signature(settings)
+    def persist_positions(self):
+        settings=load_workbench_settings(self.config)
+        signature=filter_fingerprint(settings)
         for row in self.rows:
-            eligible,reason=check_job(row,settings,final=False)
-            if not eligible:mark_filter(row,reason,signature)
+            eligible,reason=evaluate_position(row,settings,final=False)
+            if not eligible:record_filter_rejection(row,reason,signature)
             elif row.get('filter_signature')!=signature:
                 row.update(review_status='direct_pending',score=0,reasons=['进入待处理队列'],uncertainties=[])
                 if str(row.get('application_result','')).startswith('未投递：'):row['application_result']='待按新配置处理'
         self.rows.sort(key=lambda row:row.get('captured_at',''))
-        write_json(ROWS,self.rows)
+        write_state_file(ROWS,self.rows)
         with CSV.open('w',encoding='utf-8-sig',newline='') as handle:
             writer=csv.writer(handle);writer.writerow(['公司','职位','城市','薪资','链接','过滤原因','结果'])
             for row in self.rows:
@@ -182,15 +182,15 @@ class Preview(ZhaopinAutomation):
                 values+=['；'.join(row.get('reasons',[])),row.get('application_result','待处理')]
                 writer.writerow([("'"+str(value)) if str(value).startswith(('=','+','-','@')) else value for value in values])
 
-    async def scan(self):
-        self.save_rows()
-        settings=current_settings(self.config)
+    async def collect_positions(self):
+        self.persist_positions()
+        settings=load_workbench_settings(self.config)
         direct=True
-        keywords = split_keywords(self.config.get('filter_keywords', ''))
+        keywords = parse_keyword_list(self.config.get('filter_keywords', ''))
         if direct:
-            from auto_campaign import Ledger, pending_jobs
-            ledger = Ledger()
-            if settings.processing_mode=='apply' and len(pending_jobs(self.rows, ledger, True, settings=settings)) >= settings.batch_size:
+            from application_runner import SubmissionJournal, build_pending_queue
+            ledger = SubmissionJournal()
+            if settings.processing_mode=='apply' and len(build_pending_queue(self.rows, ledger, True, settings=settings)) >= settings.batch_size:
                 self.report('ready_to_apply', '待处理队列已就绪。')
                 return
         cycle = int(self.config.get('campaign_scan_cycle', 0))
@@ -200,7 +200,7 @@ class Preview(ZhaopinAutomation):
         terms=settings.search_terms if not settings.search_url else ['自定义搜索']
         for term in terms:
             for city in (settings.cities if not settings.search_url else ['自定义']):
-                await self.wait_control()
+                await self.wait_for_task_permission()
                 if len(self.rows)-self.initial_count>=settings.collect_limit:return
                 code=CITY_CODES.get(city,'')
                 if not direct and len(self.rows) - self.initial_count >= 120:
@@ -209,7 +209,7 @@ class Preview(ZhaopinAutomation):
                 url=settings.search_url or ('https://www.zhaopin.com/sou/jl'+code+'/?'+urlencode({'kw':term}))
                 self.report('scanning', f'{"广投采集" if direct else "采集"}：正在搜索 {city} / {term}；已采集 {len(self.rows)} 条。')
                 await self.page.goto(url, wait_until='domcontentloaded', timeout=60000)
-                await self.read_nickname()
+                await self.detect_account_name()
                 await self.context.storage_state(path=str(ROOT / self.state_file))
                 try:
                     await self.page.wait_for_selector('.job-list-panel .job-card, .joblist-box__item', timeout=20000)
@@ -237,20 +237,20 @@ class Preview(ZhaopinAutomation):
                             break
                 selected = cards[offset:offset + 12] or cards[:12]
                 for card in selected:
-                    await self.wait_control()
+                    await self.wait_for_task_permission()
                     if len(self.rows)-self.initial_count>=settings.collect_limit:return
-                    info = await self.extract_job_info(card) if split_layout else await self.legacy_info(card)
+                    info = await self.parse_position_summary(card) if split_layout else await self.parse_job_card(card)
                     # Pre-filter obvious unrelated titles to avoid unnecessary detail requests.
                     key = f"{info.get('company')}|{info.get('title')}|{info.get('location')}"
                     previous = next((row for row in self.rows if f"{row.get('company')}|{row.get('title')}|{row.get('location')}" == key), None)
                     if (key in self.seen and (not direct or (previous and previous.get('url')))) or self.db.is_job_applied(info):
                         continue
                     self.seen.add(key)
-                    allowed,reason=check_job(info,settings,final=False)
+                    allowed,reason=evaluate_position(info,settings,final=False)
                     preliminary={'review_status':'direct_pending' if allowed else 'excluded'}
                     detail_read=allowed
                     if detail_read:
-                        info = await self.fetch_job_detail_split(info, card) if split_layout else await self.legacy_detail(info)
+                        info = await self.open_position_details(info, card) if split_layout else await self.load_job_detail(info)
                     if split_layout:
                         link = await card.query_selector('a[href*="/jobdetail/"]')
                         if not link and detail_read:
@@ -267,9 +267,9 @@ class Preview(ZhaopinAutomation):
                             for label,state in (('取消收藏',True),('已收藏',True),('收藏',False)):
                                 button=self.page.get_by_role('button',name=label,exact=True).first
                                 if await button.is_visible():info['is_favorite']=state;break
-                        allowed,reason=check_job(info,settings,final=True)
+                        allowed,reason=evaluate_position(info,settings,final=True)
                     info.update(review_status='direct_pending',score=0,reasons=['待按配置处理'],uncertainties=[])
-                    if not allowed:mark_filter(info,reason,filter_signature(settings))
+                    if not allowed:record_filter_rejection(info,reason,filter_fingerprint(settings))
                     if info.get('already_applied_on_site'):
                         info.update(review_status='excluded', score=0, reasons=['站点显示已投递/已沟通，跳过'], uncertainties=[])
                     info.update(id=hashlib.sha256(key.encode()).hexdigest()[:16], search_url=url,
@@ -278,21 +278,21 @@ class Preview(ZhaopinAutomation):
                         previous.update(info)
                     else:
                         self.rows.append(info)
-                    self.save_rows()
-                    if settings.processing_mode=='apply' and len(pending_jobs(self.rows, ledger, True, settings=settings)) >= settings.batch_size:
+                    self.persist_positions()
+                    if settings.processing_mode=='apply' and len(build_pending_queue(self.rows, ledger, True, settings=settings)) >= settings.batch_size:
                         self.report('ready_to_apply', '已收齐本批待处理职位。')
                         return
                     await asyncio.sleep(0.3 if info['review_status'] == 'excluded' else 1.5)
         self.report('collected',f'本轮采集完成，共{len(self.rows)}条。')
 
-    async def run_preview(self):
+    async def run_collection_task(self):
         try:
             await self.init_browser()
             if await self.login():
                 self.login_page=self.page
                 self.page=await self.context.new_page()
-                from auto_campaign import Campaign
-                await Campaign(self).run()
+                from application_runner import ResumeApplicationService
+                await ResumeApplicationService(self).run()
         except Exception as error:
             self.report('error','任务停止：'+str(error))
             raise
@@ -304,4 +304,4 @@ class Preview(ZhaopinAutomation):
             if self.playwright:await self.playwright.stop()
 
 if __name__=='__main__':
-    asyncio.run(Preview().run_preview())
+    asyncio.run(PositionCollector().run_collection_task())

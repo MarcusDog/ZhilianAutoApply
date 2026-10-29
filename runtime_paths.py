@@ -6,8 +6,13 @@ import sys
 FROZEN = bool(getattr(sys, 'frozen', False))
 RESOURCE_DIR = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 
-def resolve_data_dir():
+def find_user_data_directory():
     explicit = os.environ.get('AUTOAPPLY_DATA_DIR')
+    if '--data-dir' in sys.argv:
+        index = sys.argv.index('--data-dir') + 1
+        if index >= len(sys.argv):
+            raise SystemExit('--data-dir 需要目录参数')
+        explicit = sys.argv[index]
     if explicit:
         return Path(explicit).expanduser().resolve()
     base = Path(sys.executable).parent if FROZEN else RESOURCE_DIR
@@ -18,12 +23,12 @@ def resolve_data_dir():
         probe.write_text('ok', encoding='utf-8'); probe.unlink()
         return candidate
     except OSError:
-        return Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'ZhilianApplyDesk'
+        return Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'ZhilianAutoApply'
 
-DATA_DIR = resolve_data_dir()
+DATA_DIR = find_user_data_directory()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-def worker_command(script='preview_jobs.py'):
+def build_worker_command(script='job_collector.py'):
     if FROZEN:
         return [sys.executable, '--worker', 'preview']
     return [sys.executable, str(RESOURCE_DIR / script)]

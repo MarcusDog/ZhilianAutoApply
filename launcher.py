@@ -12,7 +12,8 @@ import urllib.error
 import urllib.request
 import webbrowser
 
-from app_paths import DATA_DIR, FROZEN, RESOURCE_DIR
+from runtime_paths import DATA_DIR, FROZEN, RESOURCE_DIR
+from project_identity import APP_ID, APP_NAME
 
 
 def restore_stream(name, handle_id, fallback):
@@ -46,7 +47,7 @@ def service_status(base):
     try:
         status = api(base, '/api/preview/status')
         info=api(base,'/api/desktop/info')
-        if (info.get('application')!='ZhilianApplyDesk' or not isinstance(status.get('process'),dict)
+        if (info.get('application')!=APP_ID or not isinstance(status.get('process'),dict)
                 or Path(info.get('data_directory','')).resolve()!=DATA_DIR.resolve()):
             raise RuntimeError('管理端口被其他程序占用，请使用 --port 指定其他端口。')
         return status
@@ -88,7 +89,7 @@ def launch(port=8765, no_browser=False):
         else:
             raise RuntimeError('连续20个本地端口已被其他服务占用，请用 --port 更换端口。')
         if status is None:
-            command = [sys.executable] if FROZEN else [sys.executable, str(RESOURCE_DIR / 'desktop_entry.py')]
+            command = [sys.executable] if FROZEN else [sys.executable, str(RESOURCE_DIR / 'launcher.py')]
             command += ['--server', '--port', str(port)]
             env = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUNBUFFERED='1',
                        AUTOAPPLY_DATA_DIR=str(DATA_DIR))
@@ -119,11 +120,11 @@ def launch(port=8765, no_browser=False):
 async def self_test(output):
     from playwright.async_api import async_playwright
     from dao.database import init_database
-    from preview_jobs import Preview
-    from auto_campaign import Campaign
+    from job_collector import PositionCollector
+    from application_runner import ResumeApplicationService
     init_database()
-    worker = Preview()
-    campaign = Campaign(worker)
+    worker = PositionCollector()
+    campaign = ResumeApplicationService(worker)
     async with async_playwright() as playwright:
         browser=None
         for channel in ('chrome','msedge',None):
@@ -132,7 +133,7 @@ async def self_test(output):
             except Exception:pass
         if browser is None:raise RuntimeError('请安装Chrome/Edge或Playwright Chromium')
         page = await browser.new_page()
-        await page.set_content('<title>AutoApplyZhiLian bundled browser test</title>')
+        await page.set_content('<title>ZhilianAutoApply bundled browser test</title>')
         title = await page.title()
         await browser.close()
     result = {'frozen': FROZEN, 'data_directory': str(DATA_DIR), 'browser_title': title,
@@ -141,13 +142,14 @@ async def self_test(output):
     Path(output).write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')
 
 
-def main():
+def run_launcher():
     parser = argparse.ArgumentParser()
     parser.add_argument('--server', action='store_true')
     parser.add_argument('--worker', choices=('preview',))
     parser.add_argument('--self-test')
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--no-browser', action='store_true')
+    parser.add_argument('--data-dir', help='使用现有数据目录，保留账号和去重记录')
     args = parser.parse_args()
     os.chdir(DATA_DIR)
     restore_stream('stdout', -11, 'desktop.stdout.log')
@@ -155,11 +157,11 @@ def main():
     try:
         if args.server:
             import uvicorn
-            import main as application
+            import web_server as application
             uvicorn.run(application.app, host='127.0.0.1', port=args.port, loop='asyncio', http='h11', ws='none')
         elif args.worker:
-            from preview_jobs import Preview
-            asyncio.run(Preview().run_preview())
+            from job_collector import PositionCollector
+            asyncio.run(PositionCollector().run_collection_task())
         elif args.self_test:
             asyncio.run(self_test(args.self_test))
         else:
@@ -170,11 +172,11 @@ def main():
         if not (args.server or args.worker or args.self_test):
             if os.name=='nt' and not args.no_browser:
                 import ctypes
-                ctypes.windll.user32.MessageBoxW(None,str(error)+'\n\n日志目录：'+str(DATA_DIR),'Apply Desk：启动失败',0x10)
+                ctypes.windll.user32.MessageBoxW(None,str(error)+'\n\n日志目录：'+str(DATA_DIR),'智联自动投递简历：启动失败',0x10)
         raise SystemExit(1)
 
 
 if __name__ == '__main__':
     import multiprocessing
     multiprocessing.freeze_support()
-    main()
+    run_launcher()

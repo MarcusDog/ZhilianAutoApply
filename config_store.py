@@ -20,7 +20,7 @@ DEFAULT_CONFIG = {
 
 
 
-class AppConfig:
+class UserConfigStore:
     """配置管理类，配置统一持久化到 app_config 表（不再使用 config.json）"""
 
     def __init__(self):
@@ -116,9 +116,9 @@ class AppConfig:
 
 
 # 全局单例
-config = AppConfig()
+config = UserConfigStore()
 
 
-def get_config():
+def get_user_config():
     """获取全局配置单例"""
     return config
