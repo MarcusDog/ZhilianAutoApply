@@ -8,6 +8,8 @@ with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as archive:
     for path in bundle.rglob('*'):
         if not path.is_file():continue
         relative=path.relative_to(bundle)
+        if relative.parts[:2]==('docs','docs'):
+            continue
         if relative.parts[0]=='data' or path.suffix.lower() in ('.db','.log','.csv'):
             continue
         if any(name in path.name.lower() for name in ('state.json','cookies.json','desktop_error','desktop_last_launch')):
