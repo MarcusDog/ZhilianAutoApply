@@ -42,16 +42,3 @@ def find_keyword_match(keywords, job_info):
         if kw.casefold() in combined.casefold():
             return kw
     return None
-
-
-def record_blocked_keyword(job_info, keywords):
-    """Record an exclusion without changing historical submission results."""
-    hit = find_keyword_match(keywords, job_info)
-    if hit:
-        reason = f'命中黑名单关键词：{hit}'
-        job_info.update(blacklist_keyword=hit, review_status='excluded', score=0,
-                        reasons=[reason], uncertainties=[])
-        result = job_info.get('application_result', '')
-        if not result.startswith(('投递成功', '投递结果未确认', '验证中', '平台今日上限', '站点显示已投递')):
-            job_info['application_result'] = '未投递：' + reason
-    return hit

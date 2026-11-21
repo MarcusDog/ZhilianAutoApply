@@ -13,9 +13,6 @@ DEFAULT_CONFIG = {
     "filter_keywords": "",
     "search_url": "",
     "login_success_keyword": "",
-    "deepseek_enabled": False,
-    "ollama_enabled": False,
-    "ai_provider": "deepseek",
 }
 
 
@@ -57,25 +54,6 @@ class UserConfigStore:
         self.config=self.load()
         return True
 
-    def render_prompt(self, template, variables):
-        """渲染提示词模板，支持 {占位符} 引用配置项
-
-        Args:
-            template: 提示词模板字符串
-            variables: 变量字典，如 {'job_title': 'xxx', 'skills': 'yyy'}
-        """
-        result = template
-        for key, value in variables.items():
-            placeholder = "{" + key + "}"
-            if placeholder in result:
-                result = result.replace(placeholder, str(value) if value else '')
-        return result
-
-    # ===== 兼容旧接口（参数 db 保留兼容，实际始终以数据库为准） =====
-    def save_to_db(self, db=None):
-        """保存配置到数据库"""
-        return self.save()
-
     def load_from_db(self, db=None):
         """从数据库重新加载配置（数据库为准，不合并内存中的旧值）"""
         db_config = app_config_dao.load_config()
@@ -85,34 +63,6 @@ class UserConfigStore:
             self.config = merged
             return True
         return False
-
-    def render_with_job(self, template, job_info):
-        """根据职位信息渲染提示词模板
-
-        支持占位符：
-          {job_title} {job_description} {job_requirements} {salary}
-          {location} {experience} {education} {company}
-          {salary_range} {skills} {greeting}
-        """
-        variables = {
-            'job_title': job_info.get('title', ''),
-            'job_description': job_info.get('description', ''),
-            'job_requirements': job_info.get('requirements', ''),
-            'salary': job_info.get('salary', ''),
-            'location': job_info.get('location', ''),
-            'experience': job_info.get('experience', ''),
-            'education': job_info.get('education', ''),
-            'company': job_info.get('company', ''),
-            'salary_range': self.get('salary_range', ''),
-            'skills': self.get('skills', ''),
-            'greeting': self.render_prompt(self.get('greeting_prompt', ''), {
-                'job_title': job_info.get('title', ''),
-                'company': job_info.get('company', ''),
-                'salary_range': self.get('salary_range', ''),
-                'skills': self.get('skills', ''),
-            })
-        }
-        return self.render_prompt(template, variables)
 
 
 # 全局单例

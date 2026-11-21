@@ -23,7 +23,12 @@ def find_user_data_directory():
         probe.write_text('ok', encoding='utf-8'); probe.unlink()
         return candidate
     except OSError:
-        return Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'ZhilianAutoApply'
+        local_data = Path(os.environ.get('LOCALAPPDATA', str(Path.home())))
+        current = local_data / 'ZhilianAutoApply'
+        legacy = local_data / 'ZhilianApplyDesk'
+        if not current.exists() and (legacy / 'zhaopin.db').is_file():
+            return legacy
+        return current
 
 DATA_DIR = find_user_data_directory()
 DATA_DIR.mkdir(parents=True, exist_ok=True)

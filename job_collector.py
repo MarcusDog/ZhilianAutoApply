@@ -5,13 +5,13 @@ import hashlib
 import json
 import time
 from datetime import datetime
-from pathlib import Path
 from urllib.parse import urlencode, urlparse, urljoin
 
 from playwright.async_api import async_playwright
-from search_catalog import CITY_CODES, SEARCH_TERMS, rank_collected_position
 from browser_engine import ZhilianBrowserSession
-from keyword_rules import parse_keyword_list, find_keyword_match, record_blocked_keyword
+from config_store import get_user_config
+from dao import apply_record_dao
+from dao.database import init_database
 from runtime_paths import DATA_DIR
 from workbench_settings import load_workbench_settings, CITY_CODES
 from position_filters import evaluate_position, record_filter_rejection, filter_fingerprint
@@ -21,16 +21,6 @@ STATE = ROOT / 'preview_status.json'
 ROWS = ROOT / 'candidate_jobs.json'
 CSV = ROOT / '候选岗位清单.csv'
 
-def classify_collected_position(job, direct=False, keywords=None):
-    hit = find_keyword_match(keywords, job)
-    if hit:
-        return dict(review_status='excluded', score=0, reasons=[f'命中黑名单关键词：{hit}'],
-                    uncertainties=[], blacklist_keyword=hit)
-    if direct:
-        return dict(review_status='direct_pending', score=0, reasons=['按用户广投授权，采集后直接投递'], uncertainties=[])
-    return rank_collected_position(job)
-
-
 def write_state_file(path, value):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -39,20 +29,21 @@ def write_state_file(path, value):
 
 class PositionCollector(ZhilianBrowserSession):
     def __init__(self):
-        super().__init__(headless=False)
+        self.context = None
+        self.page = None
+        self.playwright = None
+        self.browser = None
+        self.state_file = 'zhaopin_state.json'
+        init_database()
+        self.config = get_user_config()
+        self.config.load_from_db()
+        self.db = apply_record_dao
         self.rows = json.loads(ROWS.read_text(encoding='utf-8')) if ROWS.exists() else []
-        for row in self.rows:
-            row.update(classify_collected_position(row, self.config.get('campaign_no_filter', False),
-                                           parse_keyword_list(self.config.get('filter_keywords', ''))))
-        self.seen = {f"{row.get('company')}|{row.get('title')}|{row.get('location')}" for row in self.rows}
         self.initial_count = len(self.rows)
         self.nickname = ''
 
     def report(self, stage, message):
         automatic = self.config.get('campaign_authorized', False)
-        if automatic and stage == 'awaiting_confirmation':
-            stage = 'auto_monitoring'
-            message = '本轮采集结束，继续无筛选广投。' if self.config.get('campaign_no_filter') else '本轮采集结束，自动循环将继续处理符合条件的新岗位。'
         print(message, flush=True)
         status = dict(stage=stage, message=message, nickname=self.nickname,
                               count=len(self.rows), updated_at=datetime.now().isoformat(),
@@ -168,6 +159,8 @@ class PositionCollector(ZhilianBrowserSession):
         settings=load_workbench_settings(self.config)
         signature=filter_fingerprint(settings)
         for row in self.rows:
+            if row.get('already_applied_on_site'):
+                continue
             eligible,reason=evaluate_position(row,settings,final=False)
             if not eligible:record_filter_rejection(row,reason,signature)
             elif row.get('filter_signature')!=signature:
@@ -185,12 +178,10 @@ class PositionCollector(ZhilianBrowserSession):
     async def collect_positions(self):
         self.persist_positions()
         settings=load_workbench_settings(self.config)
-        direct=True
-        keywords = parse_keyword_list(self.config.get('filter_keywords', ''))
-        if direct:
+        if settings.processing_mode == 'apply':
             from application_runner import SubmissionJournal, build_pending_queue
             ledger = SubmissionJournal()
-            if settings.processing_mode=='apply' and len(build_pending_queue(self.rows, ledger, True, settings=settings)) >= settings.batch_size:
+            if len(build_pending_queue(self.rows, ledger, settings)) >= settings.batch_size:
                 self.report('ready_to_apply', '待处理队列已就绪。')
                 return
         cycle = int(self.config.get('campaign_scan_cycle', 0))
@@ -203,11 +194,8 @@ class PositionCollector(ZhilianBrowserSession):
                 await self.wait_for_task_permission()
                 if len(self.rows)-self.initial_count>=settings.collect_limit:return
                 code=CITY_CODES.get(city,'')
-                if not direct and len(self.rows) - self.initial_count >= 120:
-                    self.report('awaiting_confirmation', f'首批已采集 {len(self.rows)} 条，已按匹配度排序；请先核验清单，本流程未投递。')
-                    return
                 url=settings.search_url or ('https://www.zhaopin.com/sou/jl'+code+'/?'+urlencode({'kw':term}))
-                self.report('scanning', f'{"广投采集" if direct else "采集"}：正在搜索 {city} / {term}；已采集 {len(self.rows)} 条。')
+                self.report('scanning', f'正在搜索 {city} / {term}；已采集 {len(self.rows)} 条。')
                 await self.page.goto(url, wait_until='domcontentloaded', timeout=60000)
                 await self.detect_account_name()
                 await self.context.storage_state(path=str(ROOT / self.state_file))
@@ -243,12 +231,10 @@ class PositionCollector(ZhilianBrowserSession):
                     # Pre-filter obvious unrelated titles to avoid unnecessary detail requests.
                     key = f"{info.get('company')}|{info.get('title')}|{info.get('location')}"
                     previous = next((row for row in self.rows if f"{row.get('company')}|{row.get('title')}|{row.get('location')}" == key), None)
-                    if (key in self.seen and (not direct or (previous and previous.get('url')))) or self.db.is_job_applied(info):
+                    if (previous and previous.get('url')) or self.db.is_job_applied(info):
                         continue
-                    self.seen.add(key)
-                    allowed,reason=evaluate_position(info,settings,final=False)
-                    preliminary={'review_status':'direct_pending' if allowed else 'excluded'}
-                    detail_read=allowed
+                    detail_read, reason = evaluate_position(info, settings, final=False)
+                    allowed = detail_read
                     if detail_read:
                         info = await self.open_position_details(info, card) if split_layout else await self.load_job_detail(info)
                     if split_layout:
@@ -269,17 +255,19 @@ class PositionCollector(ZhilianBrowserSession):
                                 if await button.is_visible():info['is_favorite']=state;break
                         allowed,reason=evaluate_position(info,settings,final=True)
                     info.update(review_status='direct_pending',score=0,reasons=['待按配置处理'],uncertainties=[])
-                    if not allowed:record_filter_rejection(info,reason,filter_fingerprint(settings))
-                    if info.get('already_applied_on_site'):
-                        info.update(review_status='excluded', score=0, reasons=['站点显示已投递/已沟通，跳过'], uncertainties=[])
                     info.update(id=hashlib.sha256(key.encode()).hexdigest()[:16], search_url=url,
-                                application_result='待本人确认，未投递', captured_at=datetime.now().isoformat())
+                                application_result='待处理，未投递', captured_at=datetime.now().isoformat())
+                    if info.get('already_applied_on_site'):
+                        info.update(review_status='excluded', reasons=['站点显示已投递/已沟通，跳过'],
+                                    application_result='站点显示已投递/已沟通，跳过')
+                    elif not allowed:
+                        record_filter_rejection(info, reason, filter_fingerprint(settings))
                     if previous is not None:
                         previous.update(info)
                     else:
                         self.rows.append(info)
                     self.persist_positions()
-                    if settings.processing_mode=='apply' and len(build_pending_queue(self.rows, ledger, True, settings=settings)) >= settings.batch_size:
+                    if settings.processing_mode == 'apply' and len(build_pending_queue(self.rows, ledger, settings)) >= settings.batch_size:
                         self.report('ready_to_apply', '已收齐本批待处理职位。')
                         return
                     await asyncio.sleep(0.3 if info['review_status'] == 'excluded' else 1.5)
@@ -289,7 +277,6 @@ class PositionCollector(ZhilianBrowserSession):
         try:
             await self.init_browser()
             if await self.login():
-                self.login_page=self.page
                 self.page=await self.context.new_page()
                 from application_runner import ResumeApplicationService
                 await ResumeApplicationService(self).run()

@@ -6,10 +6,9 @@ import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from urllib.parse import urlparse
 
-from keyword_rules import parse_keyword_list, find_keyword_match, record_blocked_keyword
+from keyword_rules import parse_keyword_list
 from runtime_paths import DATA_DIR
 from workbench_settings import load_workbench_settings
 from position_filters import evaluate_position, record_filter_rejection, filter_fingerprint
@@ -35,9 +34,6 @@ def saved_resume_after(path=None):
 def position_key(job):
     match = re.search(r'/jobdetail/([A-Za-z0-9_-]+)\.htm', job.get('url') or '')
     return match.group(1) if match else hashlib.sha256((job.get('url') or '').encode()).hexdigest()
-
-def normalized(text):
-    return re.sub(r'\W+', '', text or '').lower()
 
 def is_daily_quota_reached(text):
     return bool(re.search(r'(?:今日|今天|当日).{0,12}(?:投递|申请).{0,15}(?:上限|超过|用完)|已超过今日投递|投递次数已达上限', text))
@@ -107,30 +103,27 @@ class SubmissionJournal:
         with self.connect() as db:
             return db.execute('SELECT COUNT(*) FROM submissions WHERE batch_id=?', (batch,)).fetchone()[0]
 
-def build_pending_queue(rows, ledger, no_filter=False, keywords=None, settings=None):
+def build_pending_queue(rows, ledger, settings):
     seen = ledger.all_keys()
+    signature = filter_fingerprint(settings)
     queue = []
     for job in rows:
-        if settings is not None:
-            if job.get('review_status')=='excluded' and job.get('filter_signature')==filter_fingerprint(settings):continue
-            eligible,reason=evaluate_position(job,settings,final=False)
-            if not eligible:
-                record_filter_rejection(job,reason,filter_fingerprint(settings))
-                continue
-        elif record_blocked_keyword(job, keywords):
-            continue
-        if not job.get('url') or job.get('already_applied_on_site'):
-            continue
-        if no_filter and urlparse(job['url']).hostname != 'www.zhaopin.com':
-            continue
-        if not no_filter and job.get('review_status') == 'excluded':
+        url = job.get('url')
+        if not url or job.get('already_applied_on_site') or urlparse(url).hostname != 'www.zhaopin.com':
             continue
         key = position_key(job)
         if key in seen:
             continue
+        if job.get('review_status') == 'excluded' and job.get('filter_signature') == signature:
+            continue
+        eligible, reason = evaluate_position(job, settings, final=False)
+        if not eligible:
+            record_filter_rejection(job, reason, signature)
+            continue
         seen.add(key)
         queue.append(job)
     return queue
+
 
 class ResumeApplicationService:
     def __init__(self, worker):
@@ -286,7 +279,7 @@ class ResumeApplicationService:
             if not keep_open:
                 await page.close()
 
-    async def run(self, resume_batch=None):
+    async def run(self):
         self.report('running','循环已启动，按网页中的当前配置处理。')
         while self.worker.browser.is_connected():
             await self.worker.wait_for_task_permission()
@@ -304,13 +297,13 @@ class ResumeApplicationService:
                 await self.worker.wait_for_task_permission(15);continue
             batch=self.ledger.new_batch();self.status['batch_id']=batch
             try:
-                candidates=build_pending_queue(self.worker.rows,self.ledger,True,settings=settings)
+                candidates=build_pending_queue(self.worker.rows, self.ledger, settings)
                 if settings.processing_mode=='preview' or len(candidates)<settings.batch_size:
                     self.worker.initial_count=len(self.worker.rows)
                     self.report('collecting','正在采集新岗位，并执行当前过滤规则。')
                     await self.worker.collect_positions()
                     settings=load_workbench_settings(self.worker.config)
-                    candidates=build_pending_queue(self.worker.rows,self.ledger,True,settings=settings)
+                    candidates=build_pending_queue(self.worker.rows, self.ledger, settings)
                 if settings.processing_mode=='apply':
                     for job in candidates:
                         await self.worker.wait_for_task_permission()

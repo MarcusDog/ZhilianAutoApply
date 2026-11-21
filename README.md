@@ -165,7 +165,9 @@ $env:AUTOAPPLY_DATA_DIR = "$env:LOCALAPPDATA\ZhilianAutoApply"
 uv run python launcher.py
 ```
 
-升级时先暂停并关闭任务，备份 `data/`，替换程序文件和 `_internal/`，保留 `data/` 后重新启动。不要把自己的 `data/` 放进 Git 或分享给别人。
+升级前关闭旧版任务和后台服务，再备份 `data/`。把新版完整解压到新目录，将旧版 `data/` 移到新版 EXE 旁，也可以用 `--data-dir` 指定原目录。新版可以继续读取历史设置、登录资料和去重账本。旧配置中的“下次启动自动恢复”和定时启动仍然生效，请在升级前检查这些开关。
+
+如果旧版因安装目录不可写而使用了 `%LOCALAPPDATA%\ZhilianApplyDesk`，且新版的本地应用数据目录尚未创建，新版在同样无法写入安装目录时会继续使用旧目录。不要把自己的 `data/` 放进 Git 或分享给别人。
 
 ## 7. 启动故障排查
 
@@ -242,5 +244,7 @@ web/               无 CDN 依赖的本地 Web 界面
 tests/             不使用个人账号数据的自动化测试
 scripts/           Windows 打包与发布包生成
 ```
+
+上游来源与许可信息见 [NOTICE.md](NOTICE.md)。
 
 本项目是由使用者控制的本机自动化工具。请确保简历信息真实，并按平台实际规则使用；不提供绕过平台上限、验证码或登录限制的功能。

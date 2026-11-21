@@ -18,3 +18,20 @@ class ProjectIdentityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(sys,'argv',['ZhilianAutoApply.exe','--data-dir',directory]):
                 self.assertEqual(find_user_data_directory(),Path(directory).resolve())
+
+    def test_unwritable_install_reuses_legacy_data_without_overriding_new_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            install = root / 'install'
+            install.mkdir()
+            (install / 'data').touch()  # Simulate an unwritable portable data directory.
+            legacy = root / 'ZhilianApplyDesk'
+            legacy.mkdir()
+            (legacy / 'zhaopin.db').touch()
+            with patch('runtime_paths.RESOURCE_DIR', install), patch('runtime_paths.FROZEN', False), \
+                    patch.dict('os.environ', {'AUTOAPPLY_DATA_DIR': '', 'LOCALAPPDATA': directory}), \
+                    patch.object(sys, 'argv', ['launcher.py']):
+                self.assertEqual(find_user_data_directory(), legacy)
+                current = root / 'ZhilianAutoApply'
+                current.mkdir()
+                self.assertEqual(find_user_data_directory(), current)

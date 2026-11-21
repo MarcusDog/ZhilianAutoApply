@@ -56,5 +56,5 @@ def filter_fingerprint(settings):
 def record_filter_rejection(job,reason,signature=None):
     if signature:job['filter_signature']=signature
     job.update(review_status='excluded',score=0,reasons=[reason],uncertainties=[])
-    if not str(job.get('application_result','')).startswith(('投递成功','投递结果未确认','平台今日上限')):
+    if not str(job.get('application_result','')).startswith(('投递成功', '投递结果未确认', '验证中', '平台今日上限', '站点显示已投递')):
         job['application_result']='未投递：'+reason

@@ -1,8 +1,10 @@
 import asyncio
 from datetime import datetime
+import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 from pydantic import ValidationError
 from workbench_settings import ApplicationSettings, is_start_schedule_due, CN
 from position_filters import evaluate_position, parse_salary_range, filter_fingerprint
@@ -58,15 +60,41 @@ class CoreTests(unittest.TestCase):
             self.assertFalse(ledger.reserve(jobs[2],second,daily_limit=2))
             self.assertFalse(ledger.reserve(jobs[2],second,total_limit=2))
             self.assertFalse(SubmissionJournal(Path(d)/'ledger.db').reserve(jobs[0],second))
-            self.assertEqual(len(build_pending_queue(jobs,ledger,True,settings=ApplicationSettings())),3)
+            self.assertEqual(len(build_pending_queue(jobs,ledger,ApplicationSettings())),3)
 
     def test_final_filter_rejections_retry_only_after_filter_change(self):
         with tempfile.TemporaryDirectory() as d:
             ledger=SubmissionJournal(Path(d)/'l.db');s=ApplicationSettings(detail_keywords=['RAG'])
             job=dict(title='AI',company='示例',url='https://www.zhaopin.com/jobdetail/F.htm',
                      review_status='excluded',filter_signature=filter_fingerprint(s))
-            self.assertEqual(build_pending_queue([job],ledger,True,settings=s),[])
-            self.assertEqual(build_pending_queue([job],ledger,True,settings=ApplicationSettings()),[job])
+            self.assertEqual(build_pending_queue([job],ledger,s),[])
+            self.assertEqual(build_pending_queue([job],ledger,ApplicationSettings()),[job])
+
+    def test_cached_rejection_and_whitelist_survive_collector_restart(self):
+        from job_collector import PositionCollector
+
+        settings = ApplicationSettings(keyword_mode='whitelist', filter_keywords='Python',
+                                       detail_keywords=['RAG'])
+        rejected = dict(title='AI', company='示例', url='https://www.zhaopin.com/jobdetail/A.htm',
+                        description='Python', review_status='excluded', reasons=['职位详情不含指定关键词'],
+                        filter_signature=filter_fingerprint(settings))
+        eligible = dict(title='AI', company='示例', url='https://www.zhaopin.com/jobdetail/B.htm',
+                        description='Python RAG', review_status='direct_pending')
+        config = Mock()
+        config.get.return_value = settings.model_dump()
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory)
+            rows = data / 'candidate_jobs.json'
+            rows.write_text(json.dumps([rejected, eligible]), encoding='utf-8')
+            with patch('job_collector.ROWS', rows), patch('job_collector.CSV', data / 'jobs.csv'), \
+                    patch('job_collector.get_user_config', return_value=config):
+                collector = PositionCollector()
+                collector.persist_positions()
+            self.assertEqual(collector.rows[0]['reasons'], rejected['reasons'])
+            self.assertEqual(collector.rows[1]['review_status'], 'direct_pending')
+            ledger = SubmissionJournal(data / 'ledger.db')
+            self.assertEqual(build_pending_queue(collector.rows, ledger, settings), [collector.rows[1]])
+
 
 class PauseTests(unittest.IsolatedAsyncioTestCase):
     async def test_pause_waits_and_resume_releases_same_worker(self):
